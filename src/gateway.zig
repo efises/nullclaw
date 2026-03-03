@@ -31,6 +31,8 @@ const bus_mod = @import("bus.zig");
 
 /// Maximum request body size (64KB) — prevents memory exhaustion.
 pub const MAX_BODY_SIZE: usize = 65_536;
+const MAX_HEADER_SIZE: usize = 8_192;
+const MAX_HTTP_REQUEST_SIZE: usize = MAX_HEADER_SIZE + MAX_BODY_SIZE;
 
 /// Request timeout (30s) — prevents slow-loris attacks.
 pub const REQUEST_TIMEOUT_SECS: u64 = 30;
@@ -1469,6 +1471,66 @@ pub fn extractBody(raw: []const u8) ?[]const u8 {
     return body;
 }
 
+fn headerEndOffset(raw: []const u8) ?usize {
+    const separator = "\r\n\r\n";
+    const pos = std.mem.indexOf(u8, raw, separator) orelse return null;
+    return pos + separator.len;
+}
+
+fn expectedHttpRequestSize(raw: []const u8) !?usize {
+    const header_end = headerEndOffset(raw) orelse return null;
+    if (header_end > MAX_HEADER_SIZE) return error.RequestTooLarge;
+
+    const header_slice = raw[0..header_end];
+    const content_length_raw = extractHeader(header_slice, "Content-Length") orelse return header_end;
+    const trimmed = std.mem.trim(u8, content_length_raw, " \t");
+    if (trimmed.len == 0) return error.InvalidContentLength;
+
+    const content_length = std.fmt.parseInt(usize, trimmed, 10) catch return error.InvalidContentLength;
+    if (content_length > MAX_BODY_SIZE) return error.RequestTooLarge;
+
+    const total = std.math.add(usize, header_end, content_length) catch return error.RequestTooLarge;
+    if (total > MAX_HTTP_REQUEST_SIZE) return error.RequestTooLarge;
+    return total;
+}
+
+fn readHttpRequest(allocator: std.mem.Allocator, stream: *std.net.Stream) ![]u8 {
+    var request_buf: std.ArrayListUnmanaged(u8) = .empty;
+    errdefer request_buf.deinit(allocator);
+
+    var expected_total: ?usize = null;
+    var chunk: [2048]u8 = undefined;
+
+    while (true) {
+        const n = try stream.read(&chunk);
+        if (n == 0) return error.IncompleteRequest;
+
+        try request_buf.appendSlice(allocator, chunk[0..n]);
+        if (request_buf.items.len > MAX_HTTP_REQUEST_SIZE) return error.RequestTooLarge;
+
+        if (expected_total == null) {
+            expected_total = try expectedHttpRequestSize(request_buf.items);
+        }
+
+        if (expected_total) |total| {
+            if (request_buf.items.len >= total) {
+                request_buf.items.len = total;
+                return request_buf.toOwnedSlice(allocator);
+            }
+        }
+    }
+}
+
+fn writeJsonResponse(stream: *std.net.Stream, status: []const u8, body: []const u8) void {
+    var resp_buf: [2048]u8 = undefined;
+    const resp = std.fmt.bufPrint(
+        &resp_buf,
+        "HTTP/1.1 {s}\r\nContent-Type: application/json\r\nContent-Length: {d}\r\nConnection: close\r\n\r\n{s}",
+        .{ status, body.len, body },
+    ) catch return;
+    _ = stream.write(resp) catch {};
+}
+
 /// Process an incoming message by spawning `nullclaw agent -m "..."`.
 /// Returns the agent's response text. Caller owns the returned memory.
 pub fn processIncomingMessage(allocator: std.mem.Allocator, message: []const u8) ![]u8 {
@@ -2627,11 +2689,15 @@ pub fn run(allocator: std.mem.Allocator, host: []const u8, port: u16, config_ptr
         defer arena.deinit();
         const req_allocator = arena.allocator();
 
-        // Read request line + headers from TCP stream
-        var req_buf: [4096]u8 = undefined;
-        const n = conn.stream.read(&req_buf) catch continue;
-        if (n == 0) continue;
-        const raw = req_buf[0..n];
+        // Read full HTTP request (headers + optional body).
+        const raw = readHttpRequest(req_allocator, &conn.stream) catch |err| {
+            switch (err) {
+                error.RequestTooLarge => writeJsonResponse(&conn.stream, "413 Payload Too Large", "{\"error\":\"request too large\"}"),
+                error.InvalidContentLength => writeJsonResponse(&conn.stream, "400 Bad Request", "{\"error\":\"invalid content-length\"}"),
+                else => {},
+            }
+            continue;
+        };
 
         // Parse first line: "METHOD /path HTTP/1.1\r\n"
         const first_line_end = std.mem.indexOf(u8, raw, "\r\n") orelse continue;
@@ -3937,6 +4003,31 @@ test "extractBody returns null for no body" {
 test "extractBody returns null for no separator" {
     const raw = "GET /health HTTP/1.1\r\nHost: localhost\r\n";
     try std.testing.expect(extractBody(raw) == null);
+}
+
+test "expectedHttpRequestSize returns null when headers are incomplete" {
+    const raw = "GET /health HTTP/1.1\r\nHost: localhost\r\n";
+    try std.testing.expect(try expectedHttpRequestSize(raw) == null);
+}
+
+test "expectedHttpRequestSize returns header length for requests without body" {
+    const raw = "GET /health HTTP/1.1\r\nHost: localhost\r\n\r\n";
+    try std.testing.expectEqual(raw.len, (try expectedHttpRequestSize(raw)).?);
+}
+
+test "expectedHttpRequestSize includes content length payload" {
+    const raw = "POST /webhook HTTP/1.1\r\nHost: localhost\r\nContent-Length: 5\r\n\r\nhello";
+    try std.testing.expectEqual(raw.len, (try expectedHttpRequestSize(raw)).?);
+}
+
+test "expectedHttpRequestSize rejects invalid content length" {
+    const raw = "POST /webhook HTTP/1.1\r\nHost: localhost\r\nContent-Length: abc\r\n\r\nhello";
+    try std.testing.expectError(error.InvalidContentLength, expectedHttpRequestSize(raw));
+}
+
+test "expectedHttpRequestSize rejects oversized content length" {
+    const raw = "POST /webhook HTTP/1.1\r\nHost: localhost\r\nContent-Length: 999999\r\n\r\n";
+    try std.testing.expectError(error.RequestTooLarge, expectedHttpRequestSize(raw));
 }
 
 test "userFacingAgentError maps ProviderDoesNotSupportVision" {
