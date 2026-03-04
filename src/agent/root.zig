@@ -3584,13 +3584,14 @@ test "slash /verbose updates verbose level" {
 
 test "slash /reasoning updates reasoning mode" {
     const allocator = std.testing.allocator;
-    var agent = try makeTestAgent(allocator);
-    defer agent.deinit();
+  # Task: Analyze NullClaw Tools and Autonomy Policy
 
-    const response = (try agent.handleSlashCommand("/reasoning stream")).?;
-    defer allocator.free(response);
-
-    try std.testing.expect(agent.reasoning_mode == .stream);
+- [/] Research Tool interface and registration (src/tools/...)
+- [ ] Analyze Autonomy Policy and Risk Levels (src/security/..., src/config.zig)
+- [ ] Trace Tool Execution flow with Policy Checks
+- [ ] Categorize tools by risk (internet, FS, root)
+- [ ] Generate comprehensive analysis report
+(agent.reasoning_mode == .stream);
 }
 
 test "slash /exec updates runtime exec settings" {
