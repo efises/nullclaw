@@ -17,7 +17,7 @@ ENV PATH="/zig:$PATH"
 COPY . .
 
 # Build NullClaw
-RUN zig build --release=fast
+RUN zig build --release=fast -freference-trace
 
 # Run gateway
 CMD ["./zig-out/bin/nullclaw"]
