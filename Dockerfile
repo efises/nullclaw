@@ -13,4 +13,4 @@ RUN curl -fL https://github.com/nullclaw/nullclaw/releases/download/v2026.3.4/nu
 
 EXPOSE 3002
 
-CMD ["nullclaw", "gateway", "--port", "3002"]
+CMD ["nullclaw", "gateway", "--host", "0.0.0.0", "--port", "3002"]
