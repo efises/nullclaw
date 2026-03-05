@@ -18,7 +18,7 @@ ENV PATH="/usr/local/zig:$PATH"
 COPY . .
 
 # Build
-RUN zig build --release=fast
+RUN zig build -Doptimize=ReleaseSmall
 
 
 # ---------- RUNTIME STAGE ----------
