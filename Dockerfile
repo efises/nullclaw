@@ -3,7 +3,7 @@ FROM ubuntu:22.04
 WORKDIR /app
 
 RUN apt-get update && \
-  apt-get install -y curl git build-essential ca-certificates && \
+  apt-get install -y curl git build-essential ca-certificates xz-utils && \
   rm -rf /var/lib/apt/lists/*
 
 # Install Zig
