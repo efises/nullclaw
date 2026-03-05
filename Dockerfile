@@ -1,36 +1,15 @@
-# ---------- BUILD STAGE ----------
-FROM debian:bookworm-slim AS builder
-
-WORKDIR /build
-
-RUN apt-get update && \
-  apt-get install -y curl xz-utils ca-certificates build-essential && \
-  rm -rf /var/lib/apt/lists/*
-
-# Install Zig 0.13.0
-RUN curl -L https://ziglang.org/download/0.13.0/zig-linux-x86_64-0.13.0.tar.xz \
-  | tar -xJ && \
-  mv zig-linux-* /usr/local/zig
-
-ENV PATH="/usr/local/zig:$PATH"
-
-# Copy NullClaw source
-COPY . .
-
-# Build
-RUN zig build -Doptimize=ReleaseSmall
-
-
-# ---------- RUNTIME STAGE ----------
 FROM debian:bookworm-slim
 
 WORKDIR /app
 
 RUN apt-get update && \
-  apt-get install -y ca-certificates && \
+  apt-get install -y curl ca-certificates && \
   rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /build/zig-out/bin/nullclaw /usr/local/bin/nullclaw
+# Download prebuilt NullClaw binary
+RUN curl -L https://github.com/nullclaw/nullclaw/releases/latest/download/nullclaw-linux-amd64 \
+  -o /usr/local/bin/nullclaw && \
+  chmod +x /usr/local/bin/nullclaw
 
 EXPOSE 3002
 
