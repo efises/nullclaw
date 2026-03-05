@@ -7,8 +7,8 @@ RUN apt-get update && \
   apt-get install -y curl xz-utils ca-certificates build-essential && \
   rm -rf /var/lib/apt/lists/*
 
-# Install Zig 0.15.2
-RUN curl -L https://ziglang.org/builds/zig-linux-x86_64-0.15.2.tar.xz \
+# Install Zig 0.13.0
+RUN curl -L https://ziglang.org/download/0.13.0/zig-linux-x86_64-0.13.0.tar.xz \
   | tar -xJ && \
   mv zig-linux-* /usr/local/zig
 
