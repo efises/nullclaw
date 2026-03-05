@@ -13,7 +13,6 @@ RUN curl -L https://ziglang.org/download/0.12.0/zig-linux-x86_64-0.12.0.tar.xz \
 
 ENV PATH="/zig:$PATH"
 
-# Copy source
 COPY . .
 
 # Build NullClaw
